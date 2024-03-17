@@ -67,20 +67,19 @@ PUTCHAR_PROTOTYPE {
     return ch;
 }
 
-void receiveString(char *buffer, int maxLength) {
+void receiveString(char *buffer, int maxLength, char escapeChar) {
     int index = 0;
     char receivedChar;
 
     do {
         HAL_UART_Receive(&huart2, (uint8_t *)&receivedChar, 1, HAL_MAX_DELAY);
-        HAL_UART_Transmit(&huart2, (uint8_t *)&receivedChar, 1, 0xFFFF); // Écho du caractère reçu
+
         buffer[index] = receivedChar;
         index++;
-    } while (receivedChar != '\n' && index < maxLength);
+    } while (receivedChar != escapeChar && index < maxLength - 1); // -1 pour réserver de la place pour le caractère nul
 
-    buffer[index - 1] = '\0'; // Remplace le caractère de nouvelle ligne par le terminateur de chaîne
+    buffer[index] = '\0'; // Ajoute le caractère nul à la fin de la chaîne
 }
-
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -92,7 +91,7 @@ void receiveString(char *buffer, int maxLength) {
   * @brief  The application entry point.
   * @retval int
   */
-
+// Assuming max length of received string is 100 characters
 const char *char_sounds[] = {
     "._",    // A
     "_...",  // B
@@ -124,6 +123,17 @@ const char *char_sounds[] = {
     " ",     // Autres caractères
 };
 
+
+int getStringLength(const char *str) {
+    int length = 0;
+    while (str[length] != '\0') {
+        length++;
+    }
+    return length;
+}
+
+
+
 void generateMorseSound(char c) {
   // Recherche de l'indice du caractère dans le tableau char_sounds
 	c = toupper(c);
@@ -139,17 +149,21 @@ void generateMorseSound(char c) {
         HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8, GPIO_PIN_SET);   // Allume le buzzer
         HAL_Delay(100);   // Durée du son court
         HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8, GPIO_PIN_RESET); // Éteint le buzzer
-        HAL_Delay(100);   // Pause entre les sons
+        HAL_Delay(200);
+
+
+
       } else if (sound[i] == '_') {
         HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8, GPIO_PIN_SET);   // Allume le buzzer
         HAL_Delay(400);   // Durée du son long
         HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8, GPIO_PIN_RESET); // Éteint le buzzer
         HAL_Delay(200);   // Pause entre les sons
+//        HAL_UART_Transmit(&huart2, &sound[i], 1, HAL_MAX_DELAY);
       }
     }
   } else if (c == ' ') {
     // Pause entre les mots
-    HAL_Delay(600);
+    HAL_Delay(900);
   }
 }
 
@@ -178,22 +192,57 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART2_UART_Init();
+  HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_8);
+  generateMorseSound('c');
+  HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_8);
   //test de la fonction scanf
-while(1){
-  char *receivedString; // Assuming max length of received string is 100 characters
+  char receivedString[100];
+     int index = 0;
+     char receivedChar;
 
-      // Receive a string
-      receiveString(receivedString, sizeof(receivedString));
+     while (1) {
+         if (HAL_UART_Receive(&huart2, (uint8_t *)&receivedChar, 1, HAL_MAX_DELAY) == HAL_OK) {
+             if (receivedChar == '\n' || receivedChar == '\r') {
+                 // Si un caractère spécial est reçu, c'est la fin du mot ou de la phrase
+                 receivedString[index] = '\0'; // Ajouter le caractère nul à la fin de la chaîne
+                 for (int i = 0; receivedString[i] != '\0'; i++) {
+                     generateMorseSound(receivedString[i]);
+                     HAL_UART_Transmit(&huart2, (uint8_t *)&receivedString[i], 1, HAL_MAX_DELAY);
+                     HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_8);
+                 }
+//                 HAL_Delay(900); // Pause entre les mots
+                 index = 0; // Réinitialiser l'index pour le prochain mot
+             } else {
+                 // Sinon, accumuler le caractère dans le tableau
+                 receivedString[index++] = receivedChar;
+                 // Vérifier si le tableau est plein
+                 if (index >= sizeof(receivedString) - 1) {
+                     receivedString[index] = '\0'; // Ajouter le caractère nul à la fin de la chaîne
+                     // Traiter le mot accumulé
+                     for (int i = 0; receivedString[i] != '\0'; i++) {
+                         generateMorseSound(receivedString[i]);
+                         HAL_UART_Transmit(&huart2, (uint8_t *)&receivedString[i], 1, HAL_MAX_DELAY);
+                         HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_8);
+                     }
+                     HAL_Delay(600); // Pause entre les mots
+                     index = 0; // Réinitialiser l'index pour le prochain mot
+                 }
+             }
+         }
+         HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_8);
+     }
 
-      // Print the received string
-//      printf("Received string: %s\n", receivedString);
-
-      for (int i = 0; receivedString[i] != '\0'; i++) {
-    	      generateMorseSound(receivedString[i]);
-    	    }
-      HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_8);
-}
-
+//	char receivedString[100];
+//	// Choisir la taille appropriée
+//	    while (1) {
+//	    	receiveString(receivedString, sizeof(receivedString), '\0');
+//	    	        int length = getStringLength(receivedString);
+//	    	        for (int i = 0; i < length; i++) {
+//	    	            generateMorseSound(receivedString[i]);
+//	    	            HAL_UART_Transmit(&huart2, (uint8_t *)&receivedString[i],1, 0xFFFF);
+//	    	            HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_8);
+//	    	        }
+//	    }
 
 
 
@@ -359,7 +408,7 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pins : LD2_Pin PA8 */
   GPIO_InitStruct.Pin = LD2_Pin|GPIO_PIN_8;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
